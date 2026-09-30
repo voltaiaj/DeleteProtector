@@ -27,5 +27,8 @@
     <ClCompile Include="DeleteProtector.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MiniFilter.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>
