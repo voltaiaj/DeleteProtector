@@ -1,5 +1,5 @@
 #include <ntifs.h>
-
+#include "DeleteProtectorCommon.h"
 
 void DriverUnload(PDRIVER_OBJECT);
 NTSTATUS DeleteProtectorCreateClose(PDEVICE_OBJECT, PIRP);
@@ -20,4 +20,8 @@ NTSTATUS DeleteProtectorCreateClose(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
 	Irp->IoStatus.Information = 0;
 	IoCompleteRequest(Irp, IO_NO_INCREMENT);
 	return STATUS_SUCCESS;
+}
+
+void DriverUnload(PDRIVER_OBJECT DriverObject) {
+	UNREFERENCED_PARAMETER(DriverObject);
 }
