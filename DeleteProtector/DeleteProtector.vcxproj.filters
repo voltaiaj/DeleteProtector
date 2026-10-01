@@ -19,11 +19,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <Inf Include="DeleteProtector.inf">
-      <Filter>Driver Files</Filter>
-    </Inf>
-  </ItemGroup>
-  <ItemGroup>
     <ClCompile Include="DeleteProtector.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -33,6 +28,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DeleteProtectorCommon.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MiniFilter.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -1,0 +1,4 @@
+#pragma once
+
+
+NTSTATUS InitMiniFilter(PDRIVER_OBJECT, PUNICODE_STRING);
