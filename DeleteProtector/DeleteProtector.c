@@ -1,11 +1,12 @@
 #include <ntifs.h>
+#include "DeleteProtector.h"
 #include "DeleteProtectorCommon.h"
 #include "MiniFilter.h"
 
-#define DRIVER_PREFIX "DeleteProtector: "
-
 void DriverUnload(PDRIVER_OBJECT);
 NTSTATUS DeleteProtectorCreateClose(PDEVICE_OBJECT, PIRP);
+
+FilterState g_FilterState;
 
 NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) {
     UNREFERENCED_PARAMETER(RegistryPath);
@@ -35,6 +36,8 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) 
 		IoDeleteDevice(deviceObject);
 		return status;
 	}
+
+	g_FilterState.DriverObject = DriverObject;
 
 	DriverObject->DriverUnload = DriverUnload;
 	DriverObject->MajorFunction[IRP_MJ_CREATE] = 

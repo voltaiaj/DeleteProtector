@@ -110,6 +110,7 @@
     <ClCompile Include="MiniFilter.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="DeleteProtector.h" />
     <ClInclude Include="DeleteProtectorCommon.h" />
     <ClInclude Include="MiniFilter.h" />
   </ItemGroup>
