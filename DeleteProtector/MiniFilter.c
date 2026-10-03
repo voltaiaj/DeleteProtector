@@ -2,19 +2,21 @@
 #include "DeleteProtector.h"
 #include "MiniFilter.h"
 
+BOOLEAN IsProtectedExtension(PUNICODE_STRING);
+
 NTSTATUS InitMiniFilter(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) {
 	UNREFERENCED_PARAMETER(DriverObject);
 	// Initialize your mini-filter here
 	// For example, you can register a callback for file operations
 	WCHAR extension[] = L".txt"; // Example extension to protect
-	g_FilterState.Extentions.Buffer = (PWSTR)ExAllocatePool2(PagedPool, sizeof(extension), DRIVER_TAG);
-	if (g_FilterState.Extentions.Buffer == NULL) {
+	g_FilterState.Extensions.Buffer = (PWSTR)ExAllocatePool2(PagedPool, sizeof(extension), DRIVER_TAG);
+	if (g_FilterState.Extensions.Buffer == NULL) {
 		KdPrint((DRIVER_PREFIX "Failed to allocate memory for extensions\n"));
 		return STATUS_INSUFFICIENT_RESOURCES;
 	}
 
-	memcpy(g_FilterState.Extentions.Buffer, extension, sizeof(extension));
-	g_FilterState.Extentions.Length = sizeof(extension) - sizeof(WCHAR);
+	memcpy(g_FilterState.Extensions.Buffer, extension, sizeof(extension));
+	g_FilterState.Extensions.Length = sizeof(extension) - sizeof(WCHAR);
 
 	HANDLE hKey = NULL;
 	HANDLE hSubKey = NULL;
@@ -120,10 +122,12 @@ NTSTATUS InitMiniFilter(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPat
 
 NTSTATUS DeleteProtectorUnload(FLT_FILTER_UNLOAD_FLAGS Flags) {
 	UNREFERENCED_PARAMETER(Flags);
-	if (g_FilterState.Extentions.Buffer) {
-		ExFreePoolWithTag(g_FilterState.Extentions.Buffer, DRIVER_TAG);
-		g_FilterState.Extentions.Buffer = NULL;
-	}
+	
+	FltUnregisterFilter(g_FilterState.FilterHandle);
+	
+	UNICODE_STRING symbolicLinkName = RTL_CONSTANT_STRING(L"\\??\\DeleteProtector");
+	IoDeleteSymbolicLink(&symbolicLinkName);
+	IoDeleteDevice(g_FilterState.DriverObject->DeviceObject);
 	return STATUS_SUCCESS;
 }
 
@@ -131,8 +135,7 @@ NTSTATUS DeleteProtectorInstanceSetup(PCFLT_RELATED_OBJECTS FltObjects, FLT_INST
 	UNREFERENCED_PARAMETER(FltObjects);
 	UNREFERENCED_PARAMETER(Flags);
 	UNREFERENCED_PARAMETER(VolumeDeviceType);
-	UNREFERENCED_PARAMETER(VolumeFilesystemType);
-	return STATUS_SUCCESS;
+	return VolumeFilesystemType == FLT_FSTYPE_NTFS ? STATUS_SUCCESS : STATUS_FLT_DO_NOT_ATTACH;
 }
 
 NTSTATUS DeleteProtectorInstanceQueryTeardown(PCFLT_RELATED_OBJECTS FltObjects, FLT_INSTANCE_QUERY_TEARDOWN_FLAGS Flags) {
@@ -154,14 +157,71 @@ VOID DeleteProtectorInstanceTeardownComplete(PCFLT_RELATED_OBJECTS FltObjects, F
 FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreCreate(PFLT_CALLBACK_DATA Data, PCFLT_RELATED_OBJECTS FltObjects, PVOID* CompletionContext) {
 	UNREFERENCED_PARAMETER(FltObjects);
 	UNREFERENCED_PARAMETER(CompletionContext);
-	if (Data->Iopb->MajorFunction == IRP_MJ_CREATE) {
-		PUNICODE_STRING fileName = &Data->Iopb->TargetFileObject->FileName;
-		if (fileName->Length >= g_FilterState.Extentions.Length &&
-			RtlCompareMemory(fileName->Buffer + (fileName->Length / sizeof(WCHAR)) - (g_FilterState.Extentions.Length / sizeof(WCHAR)),
-				g_FilterState.Extentions.Buffer, g_FilterState.Extentions.Length) == g_FilterState.Extentions.Length) {
-			Data->IoStatus.Status = STATUS_ACCESS_DENIED;
-			return FLT_PREOP_COMPLETE;
+	
+	if (Data->RequestorMode == KernelMode)
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+	FLT_PARAMETERS params = Data->Iopb->Parameters;
+	FLT_PREOP_CALLBACK_STATUS status = FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+	if (params.Create.Options & FILE_DELETE_ON_CLOSE) {
+		PFLT_FILE_NAME_INFORMATION fileName;
+		status = FltGetFileNameInformation(Data, FLT_FILE_NAME_NORMALIZED | FLT_FILE_NAME_QUERY_DEFAULT, &fileName);
+		if (NT_SUCCESS(status)) {
+			if (IsProtectedExtension(&fileName->Name)) {
+				Data->IoStatus.Status = STATUS_ACCESS_DENIED;
+				Data->IoStatus.Information = 0;
+				status = FLT_PREOP_COMPLETE;
+			}
+			FltReleaseFileNameInformation(fileName);
 		}
 	}
-	return FLT_PREOP_SUCCESS_NO_CALLBACK;
+
+	return status;
+}
+
+FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreSetInformation(PFLT_CALLBACK_DATA Data, PCFLT_RELATED_OBJECTS FltObjects, PVOID* CompletionContext) {
+	UNREFERENCED_PARAMETER(FltObjects);
+	UNREFERENCED_PARAMETER(CompletionContext);
+
+	if (Data->RequestorMode == KernelMode)
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+	
+	FLT_PARAMETERS params = Data->Iopb->Parameters;
+	FLT_PREOP_CALLBACK_STATUS status = FLT_PREOP_SUCCESS_NO_CALLBACK;
+	if (params.SetFileInformation.FileInformationClass == FileDispositionInformation || params.SetFileInformation.FileInformationClass == FileDispositionInformationEx) {
+		PFILE_DISPOSITION_INFORMATION info = (PFILE_DISPOSITION_INFORMATION)params.SetFileInformation.InfoBuffer;
+		if (info->DeleteFile) {
+			PFLT_FILE_NAME_INFORMATION fileName;
+			status = FltGetFileNameInformation(Data, FLT_FILE_NAME_NORMALIZED | FLT_FILE_NAME_QUERY_DEFAULT, &fileName);
+			if (NT_SUCCESS(status)) {
+				if (IsProtectedExtension(&fileName->Name)) {
+					Data->IoStatus.Status = STATUS_ACCESS_DENIED;
+					Data->IoStatus.Information = 0;
+					status = FLT_PREOP_COMPLETE;
+				}
+				FltReleaseFileNameInformation(fileName);
+			}
+		}
+	}
+	return status;
+}
+
+BOOLEAN IsProtectedExtension(PUNICODE_STRING FileName) {
+	if (FileName->Length < g_FilterState.Extensions.Length)
+		return FALSE;
+	UNICODE_STRING ext;
+	NTSTATUS status = FltParseFileName(FileName, &ext, NULL, NULL);
+	if (!NT_SUCCESS(status))
+		return FALSE;
+
+	WCHAR uext[16] = { 0 };
+	UNICODE_STRING suext;
+	suext.Buffer = uext;
+	
+	suext.MaximumLength = sizeof(uext) - 2 * sizeof(WCHAR);
+	RtlUpcaseUnicodeString(&suext, &ext, FALSE);
+	RtlAppendUnicodeToString(&suext, L";");
+
+	return _wcsicmp(ext.Buffer, g_FilterState.Extensions.Buffer) == 0;
 }

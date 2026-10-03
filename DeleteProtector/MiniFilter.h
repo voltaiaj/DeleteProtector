@@ -7,7 +7,7 @@ typedef struct _FilterState {
 	PDRIVER_OBJECT DriverObject;
 	UNICODE_STRING FilterName;
 	PFLT_FILTER FilterHandle;
-	UNICODE_STRING Extentions; // Array to hold extensions to protect
+	UNICODE_STRING Extensions; // Array to hold extensions to protect
 } FilterState;
 
 extern FilterState g_FilterState;
