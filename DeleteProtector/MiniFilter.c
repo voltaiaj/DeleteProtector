@@ -3,13 +3,15 @@
 #include "MiniFilter.h"
 
 BOOLEAN IsProtectedExtension(PUNICODE_STRING);
+FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreCreate(PFLT_CALLBACK_DATA, PCFLT_RELATED_OBJECTS, PVOID*);
+FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreSetInformation(PFLT_CALLBACK_DATA, PCFLT_RELATED_OBJECTS, PVOID*);
 
 NTSTATUS InitMiniFilter(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) {
 	UNREFERENCED_PARAMETER(DriverObject);
 	// Initialize your mini-filter here
 	// For example, you can register a callback for file operations
-	WCHAR extension[] = L".txt"; // Example extension to protect
-	g_FilterState.Extensions.Buffer = (PWSTR)ExAllocatePool2(PagedPool, sizeof(extension), DRIVER_TAG);
+	WCHAR extension[] = L"TXT"; // Example extension to protect
+	g_FilterState.Extensions.Buffer = (PWSTR)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(extension), DRIVER_TAG);
 	if (g_FilterState.Extensions.Buffer == NULL) {
 		KdPrint((DRIVER_PREFIX "Failed to allocate memory for extensions\n"));
 		return STATUS_INSUFFICIENT_RESOURCES;
@@ -20,9 +22,11 @@ NTSTATUS InitMiniFilter(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPat
 
 	HANDLE hKey = NULL;
 	HANDLE hSubKey = NULL;
+	ULONG CreateFlags = OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE;
 	NTSTATUS status = STATUS_SUCCESS;
 
-	OBJECT_ATTRIBUTES keyAttributes = RTL_CONSTANT_OBJECT_ATTRIBUTES(RegistryPath, OBJ_KERNEL_HANDLE);
+	OBJECT_ATTRIBUTES keyAttributes;
+	InitializeObjectAttributes(&keyAttributes, RegistryPath, CreateFlags, NULL, NULL);
 	status = ZwOpenKey(&hKey, KEY_WRITE, &keyAttributes);
 	if (!NT_SUCCESS(status)) {
 		KdPrint((DRIVER_PREFIX "Failed to open registry key (0x%08X)\n", status));
@@ -31,7 +35,7 @@ NTSTATUS InitMiniFilter(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPat
 
 	UNICODE_STRING subKey = RTL_CONSTANT_STRING(L"Instances");
 	OBJECT_ATTRIBUTES subKeyAttributes;
-	InitializeObjectAttributes(&subKeyAttributes, &subKey, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, hKey, NULL);
+	InitializeObjectAttributes(&subKeyAttributes, &subKey, CreateFlags, hKey, NULL);
 
 	status = ZwCreateKey(&hSubKey, KEY_WRITE, &subKeyAttributes, 0, NULL, REG_OPTION_NON_VOLATILE, NULL);
 	if (!NT_SUCCESS(status)) {
@@ -53,9 +57,8 @@ NTSTATUS InitMiniFilter(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPat
 	UNICODE_STRING instKeyName;
 	RtlInitUnicodeString(&instKeyName, valueData.Buffer);
 	HANDLE hInstKey = NULL;
-	OBJECT_ATTRIBUTES instKeyAttributes;
-	InitializeObjectAttributes(&instKeyAttributes, &instKeyName, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, hKey, NULL);
-	status = ZwCreateKey(&hInstKey, KEY_WRITE, &instKeyAttributes, 0, NULL, REG_OPTION_NON_VOLATILE, NULL);
+	InitializeObjectAttributes(&subKeyAttributes, &instKeyName, CreateFlags, hSubKey, NULL);
+	status = ZwCreateKey(&hInstKey, KEY_WRITE, &subKeyAttributes, 0, NULL, REG_OPTION_NON_VOLATILE, NULL);
 	if (!NT_SUCCESS(status)) {
 		KdPrint((DRIVER_PREFIX "Failed to create instance key (0x%08X)\n", status));
 		ZwClose(hSubKey);
@@ -86,8 +89,8 @@ NTSTATUS InitMiniFilter(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPat
 	}
 
 	FLT_OPERATION_REGISTRATION const callbacks[] = {
-		{ IRP_MJ_CREATE, 0, NULL, NULL },
-		{ IRP_MJ_SET_INFORMATION, 0, NULL, NULL },
+		{ IRP_MJ_CREATE, 0, DeleteProtectorPreCreate, NULL },
+		{ IRP_MJ_SET_INFORMATION, 0, DeleteProtectorPreSetInformation, NULL },
 		{ IRP_MJ_OPERATION_END }
 	};
 
@@ -113,8 +116,9 @@ NTSTATUS InitMiniFilter(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPat
 		return status;
 	}
 
-	ZwClose(hInstKey);
+	ZwDeleteKey(hSubKey);
 	ZwClose(hSubKey);
+	ZwClose(hInstKey);	
 	ZwClose(hKey);
 
 	return STATUS_SUCCESS;
@@ -132,6 +136,8 @@ NTSTATUS DeleteProtectorUnload(FLT_FILTER_UNLOAD_FLAGS Flags) {
 }
 
 NTSTATUS DeleteProtectorInstanceSetup(PCFLT_RELATED_OBJECTS FltObjects, FLT_INSTANCE_SETUP_FLAGS Flags, DEVICE_TYPE VolumeDeviceType, FLT_FILESYSTEM_TYPE VolumeFilesystemType) {
+	KdPrint((DRIVER_PREFIX "Instance setup called for volume: %u\n", VolumeFilesystemType));
+	
 	UNREFERENCED_PARAMETER(FltObjects);
 	UNREFERENCED_PARAMETER(Flags);
 	UNREFERENCED_PARAMETER(VolumeDeviceType);
@@ -157,6 +163,15 @@ VOID DeleteProtectorInstanceTeardownComplete(PCFLT_RELATED_OBJECTS FltObjects, F
 FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreCreate(PFLT_CALLBACK_DATA Data, PCFLT_RELATED_OBJECTS FltObjects, PVOID* CompletionContext) {
 	UNREFERENCED_PARAMETER(FltObjects);
 	UNREFERENCED_PARAMETER(CompletionContext);
+	UNREFERENCED_PARAMETER(Data);
+	return FLT_PREOP_SUCCESS_NO_CALLBACK;
+}
+
+
+/*
+FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreCreate(PFLT_CALLBACK_DATA Data, PCFLT_RELATED_OBJECTS FltObjects, PVOID* CompletionContext) {
+	UNREFERENCED_PARAMETER(FltObjects);
+	UNREFERENCED_PARAMETER(CompletionContext);
 	
 	if (Data->RequestorMode == KernelMode)
 		return FLT_PREOP_SUCCESS_NO_CALLBACK;
@@ -168,6 +183,7 @@ FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreCreate(PFLT_CALLBACK_DATA Data, PCFL
 		PFLT_FILE_NAME_INFORMATION fileName;
 		status = FltGetFileNameInformation(Data, FLT_FILE_NAME_NORMALIZED | FLT_FILE_NAME_QUERY_DEFAULT, &fileName);
 		if (NT_SUCCESS(status)) {
+			KdPrint((DRIVER_PREFIX "Attempt to delete file: %wZ\n", &fileName->Name));
 			if (IsProtectedExtension(&fileName->Name)) {
 				Data->IoStatus.Status = STATUS_ACCESS_DENIED;
 				Data->IoStatus.Information = 0;
@@ -189,12 +205,17 @@ FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreSetInformation(PFLT_CALLBACK_DATA Da
 	
 	FLT_PARAMETERS params = Data->Iopb->Parameters;
 	FLT_PREOP_CALLBACK_STATUS status = FLT_PREOP_SUCCESS_NO_CALLBACK;
-	if (params.SetFileInformation.FileInformationClass == FileDispositionInformation || params.SetFileInformation.FileInformationClass == FileDispositionInformationEx) {
+	switch (params.SetFileInformation.FileInformationClass) {
+	case FileDispositionInformation: {
+		if (params.SetFileInformation.Length < sizeof(FILE_DISPOSITION_INFORMATION)) {
+			return FLT_PREOP_SUCCESS_NO_CALLBACK;
+		}
 		PFILE_DISPOSITION_INFORMATION info = (PFILE_DISPOSITION_INFORMATION)params.SetFileInformation.InfoBuffer;
-		if (info->DeleteFile) {
+		if (info && (info->DeleteFile & FILE_DISPOSITION_DELETE)) {
 			PFLT_FILE_NAME_INFORMATION fileName;
 			status = FltGetFileNameInformation(Data, FLT_FILE_NAME_NORMALIZED | FLT_FILE_NAME_QUERY_DEFAULT, &fileName);
 			if (NT_SUCCESS(status)) {
+				KdPrint((DRIVER_PREFIX "Attempt to delete file: %wZ\n", &fileName->Name));
 				if (IsProtectedExtension(&fileName->Name)) {
 					Data->IoStatus.Status = STATUS_ACCESS_DENIED;
 					Data->IoStatus.Information = 0;
@@ -203,8 +224,43 @@ FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreSetInformation(PFLT_CALLBACK_DATA Da
 				FltReleaseFileNameInformation(fileName);
 			}
 		}
+		break;
+	}
+	case FileDispositionInformationEx: {
+		if (params.SetFileInformation.Length < sizeof(FILE_DISPOSITION_INFORMATION_EX)) {
+			return FLT_PREOP_SUCCESS_NO_CALLBACK;
+		}
+		PFILE_DISPOSITION_INFORMATION_EX info = (PFILE_DISPOSITION_INFORMATION_EX)params.SetFileInformation.InfoBuffer;
+		if (info && (info->Flags & FILE_DISPOSITION_DELETE)) {
+			PFLT_FILE_NAME_INFORMATION fileName;
+			status = FltGetFileNameInformation(Data, FLT_FILE_NAME_NORMALIZED | FLT_FILE_NAME_QUERY_DEFAULT, &fileName);
+			if (NT_SUCCESS(status)) {
+				KdPrint((DRIVER_PREFIX "Attempt to delete file: %wZ\n", &fileName->Name));
+				if (IsProtectedExtension(&fileName->Name)) {
+					Data->IoStatus.Status = STATUS_ACCESS_DENIED;
+					Data->IoStatus.Information = 0;
+					status = FLT_PREOP_COMPLETE;
+				}
+				FltReleaseFileNameInformation(fileName);
+			}
+		}
+		break;
+	}
+	default:
+		return FLT_PREOP_SUCCESS_NO_CALLBACK;
+	}
+	if (params.SetFileInformation.FileInformationClass == FileDispositionInformation) {
+		
 	}
 	return status;
+}
+*/
+
+FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreSetInformation(PFLT_CALLBACK_DATA Data, PCFLT_RELATED_OBJECTS FltObjects, PVOID* CompletionContext) {
+	UNREFERENCED_PARAMETER(FltObjects);
+	UNREFERENCED_PARAMETER(CompletionContext);
+	UNREFERENCED_PARAMETER(Data);
+	return FLT_PREOP_SUCCESS_NO_CALLBACK;
 }
 
 BOOLEAN IsProtectedExtension(PUNICODE_STRING FileName) {
@@ -221,7 +277,7 @@ BOOLEAN IsProtectedExtension(PUNICODE_STRING FileName) {
 	
 	suext.MaximumLength = sizeof(uext) - 2 * sizeof(WCHAR);
 	RtlUpcaseUnicodeString(&suext, &ext, FALSE);
-	RtlAppendUnicodeToString(&suext, L";");
+	//RtlAppendUnicodeToString(&suext, L";");
 
-	return _wcsicmp(ext.Buffer, g_FilterState.Extensions.Buffer) == 0;
+	return _wcsicmp(suext.Buffer, g_FilterState.Extensions.Buffer) == 0;
 }

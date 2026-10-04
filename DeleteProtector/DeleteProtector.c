@@ -3,7 +3,6 @@
 #include "DeleteProtectorCommon.h"
 #include "MiniFilter.h"
 
-void DriverUnload(PDRIVER_OBJECT);
 NTSTATUS DeleteProtectorCreateClose(PDEVICE_OBJECT, PIRP);
 
 FilterState g_FilterState;
@@ -18,7 +17,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) 
 	status = InitMiniFilter(DriverObject, RegistryPath);
 	if (!NT_SUCCESS(status)) {
 		KdPrint((DRIVER_PREFIX "Failed to initialize mini-filter (0x%08X)\n", status));
-		IoDeleteDevice(deviceObject);
+		//IoDeleteDevice(deviceObject);
 		return status;
 	}
 
@@ -38,8 +37,17 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) 
 	}
 
 	g_FilterState.DriverObject = DriverObject;
+	
+	status = FltStartFiltering(g_FilterState.FilterHandle);
+	if (!NT_SUCCESS(status)) {
+		KdPrint((DRIVER_PREFIX "Failed to start filtering (0x%08X)\n", status));
+		IoDeleteSymbolicLink(&symbolicLinkName);
+		IoDeleteDevice(deviceObject);
+		return status;
+	}
 
-	DriverObject->DriverUnload = DriverUnload;
+	
+
 	DriverObject->MajorFunction[IRP_MJ_CREATE] = 
 		DriverObject->MajorFunction[IRP_MJ_CLOSE] =	DeleteProtectorCreateClose;
 
@@ -52,8 +60,4 @@ NTSTATUS DeleteProtectorCreateClose(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
 	Irp->IoStatus.Information = 0;
 	IoCompleteRequest(Irp, IO_NO_INCREMENT);
 	return STATUS_SUCCESS;
-}
-
-void DriverUnload(PDRIVER_OBJECT DriverObject) {
-	UNREFERENCED_PARAMETER(DriverObject);
 }
