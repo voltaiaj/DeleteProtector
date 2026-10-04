@@ -83,6 +83,9 @@
     <Link>
       <AdditionalDependencies>fltmgr.lib;fltmgr.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>copy $(ProjectDir)CreateAndLoad.bat $(OutDir)</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <DriverSign>
@@ -91,16 +94,25 @@
     <Link>
       <AdditionalDependencies>fltmgr.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>copy $(ProjectDir)CreateAndLoad.bat $(OutDir)</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
     <Link>
       <AdditionalDependencies>fltmgr.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>copy $(ProjectDir)CreateAndLoad.bat $(OutDir)</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
     <Link>
       <AdditionalDependencies>fltmgr.lib;%(AdditionalDependencies);$(KernelBufferOverflowLib);$(DDK_LIB_PATH)ntoskrnl.lib;$(DDK_LIB_PATH)hal.lib;$(DDK_LIB_PATH)wmilib.lib</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>copy $(ProjectDir)CreateAndLoad.bat $(OutDir)</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <FilesToPackage Include="$(TargetPath)" />
@@ -113,6 +125,9 @@
     <ClInclude Include="DeleteProtector.h" />
     <ClInclude Include="DeleteProtectorCommon.h" />
     <ClInclude Include="MiniFilter.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="CreateAndLoad.bat" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

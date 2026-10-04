@@ -37,4 +37,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="CreateAndLoad.bat">
+      <Filter>Driver Files</Filter>
+    </None>
+  </ItemGroup>
 </Project>
