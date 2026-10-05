@@ -6,6 +6,25 @@ BOOLEAN IsProtectedExtension(PUNICODE_STRING);
 FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreCreate(PFLT_CALLBACK_DATA, PCFLT_RELATED_OBJECTS, PVOID*);
 FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreSetInformation(PFLT_CALLBACK_DATA, PCFLT_RELATED_OBJECTS, PVOID*);
 
+FLT_OPERATION_REGISTRATION const g_callbacks[] = {
+		{ IRP_MJ_CREATE, 0, DeleteProtectorPreCreate, NULL },
+		{ IRP_MJ_SET_INFORMATION, 0, DeleteProtectorPreSetInformation, NULL },
+		{ IRP_MJ_OPERATION_END }
+};
+
+FLT_REGISTRATION const g_filterRegistration = {
+	sizeof(FLT_REGISTRATION),
+	FLT_REGISTRATION_VERSION,
+	0,
+	NULL,
+	g_callbacks,
+	DeleteProtectorUnload,
+	DeleteProtectorInstanceSetup,
+	DeleteProtectorInstanceQueryTeardown,
+	DeleteProtectorInstanceTeardownStart,
+	DeleteProtectorInstanceTeardownComplete,
+};
+
 NTSTATUS InitMiniFilter(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) {
 	UNREFERENCED_PARAMETER(DriverObject);
 	// Initialize your mini-filter here
@@ -88,26 +107,7 @@ NTSTATUS InitMiniFilter(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPat
 		return status;
 	}
 
-	FLT_OPERATION_REGISTRATION const callbacks[] = {
-		{ IRP_MJ_CREATE, 0, DeleteProtectorPreCreate, NULL },
-		{ IRP_MJ_SET_INFORMATION, 0, DeleteProtectorPreSetInformation, NULL },
-		{ IRP_MJ_OPERATION_END }
-	};
-
-	FLT_REGISTRATION const filterRegistration = {
-		sizeof(FLT_REGISTRATION),
-		FLT_REGISTRATION_VERSION,
-		0,
-		NULL,
-		callbacks,
-		DeleteProtectorUnload,
-		DeleteProtectorInstanceSetup,
-		DeleteProtectorInstanceQueryTeardown,
-		DeleteProtectorInstanceTeardownStart,
-		DeleteProtectorInstanceTeardownComplete,
-	};
-
-	status = FltRegisterFilter(DriverObject, &filterRegistration, &g_FilterState.FilterHandle);
+	status = FltRegisterFilter(DriverObject, &g_filterRegistration, &g_FilterState.FilterHandle);
 	if (!NT_SUCCESS(status)) {
 		KdPrint((DRIVER_PREFIX "Failed to register filter (0x%08X)\n", status));
 		ZwClose(hInstKey);
@@ -163,15 +163,6 @@ VOID DeleteProtectorInstanceTeardownComplete(PCFLT_RELATED_OBJECTS FltObjects, F
 FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreCreate(PFLT_CALLBACK_DATA Data, PCFLT_RELATED_OBJECTS FltObjects, PVOID* CompletionContext) {
 	UNREFERENCED_PARAMETER(FltObjects);
 	UNREFERENCED_PARAMETER(CompletionContext);
-	UNREFERENCED_PARAMETER(Data);
-	return FLT_PREOP_SUCCESS_NO_CALLBACK;
-}
-
-
-/*
-FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreCreate(PFLT_CALLBACK_DATA Data, PCFLT_RELATED_OBJECTS FltObjects, PVOID* CompletionContext) {
-	UNREFERENCED_PARAMETER(FltObjects);
-	UNREFERENCED_PARAMETER(CompletionContext);
 	
 	if (Data->RequestorMode == KernelMode)
 		return FLT_PREOP_SUCCESS_NO_CALLBACK;
@@ -213,8 +204,8 @@ FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreSetInformation(PFLT_CALLBACK_DATA Da
 		PFILE_DISPOSITION_INFORMATION info = (PFILE_DISPOSITION_INFORMATION)params.SetFileInformation.InfoBuffer;
 		if (info && (info->DeleteFile & FILE_DISPOSITION_DELETE)) {
 			PFLT_FILE_NAME_INFORMATION fileName;
-			status = FltGetFileNameInformation(Data, FLT_FILE_NAME_NORMALIZED | FLT_FILE_NAME_QUERY_DEFAULT, &fileName);
-			if (NT_SUCCESS(status)) {
+			NTSTATUS fnStatus = FltGetFileNameInformation(Data, FLT_FILE_NAME_NORMALIZED | FLT_FILE_NAME_QUERY_DEFAULT, &fileName);
+			if (NT_SUCCESS(fnStatus)) {
 				KdPrint((DRIVER_PREFIX "Attempt to delete file: %wZ\n", &fileName->Name));
 				if (IsProtectedExtension(&fileName->Name)) {
 					Data->IoStatus.Status = STATUS_ACCESS_DENIED;
@@ -233,8 +224,8 @@ FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreSetInformation(PFLT_CALLBACK_DATA Da
 		PFILE_DISPOSITION_INFORMATION_EX info = (PFILE_DISPOSITION_INFORMATION_EX)params.SetFileInformation.InfoBuffer;
 		if (info && (info->Flags & FILE_DISPOSITION_DELETE)) {
 			PFLT_FILE_NAME_INFORMATION fileName;
-			status = FltGetFileNameInformation(Data, FLT_FILE_NAME_NORMALIZED | FLT_FILE_NAME_QUERY_DEFAULT, &fileName);
-			if (NT_SUCCESS(status)) {
+			NTSTATUS fnStatus = FltGetFileNameInformation(Data, FLT_FILE_NAME_NORMALIZED | FLT_FILE_NAME_QUERY_DEFAULT, &fileName);
+			if (NT_SUCCESS(fnStatus)) {
 				KdPrint((DRIVER_PREFIX "Attempt to delete file: %wZ\n", &fileName->Name));
 				if (IsProtectedExtension(&fileName->Name)) {
 					Data->IoStatus.Status = STATUS_ACCESS_DENIED;
@@ -253,14 +244,6 @@ FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreSetInformation(PFLT_CALLBACK_DATA Da
 		
 	}
 	return status;
-}
-*/
-
-FLT_PREOP_CALLBACK_STATUS DeleteProtectorPreSetInformation(PFLT_CALLBACK_DATA Data, PCFLT_RELATED_OBJECTS FltObjects, PVOID* CompletionContext) {
-	UNREFERENCED_PARAMETER(FltObjects);
-	UNREFERENCED_PARAMETER(CompletionContext);
-	UNREFERENCED_PARAMETER(Data);
-	return FLT_PREOP_SUCCESS_NO_CALLBACK;
 }
 
 BOOLEAN IsProtectedExtension(PUNICODE_STRING FileName) {
