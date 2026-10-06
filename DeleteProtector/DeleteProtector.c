@@ -3,8 +3,11 @@
 #include "DeleteProtectorCommon.h"
 #include "MiniFilter.h"
 
+#define MAX_PATH 260
+
 NTSTATUS DeleteProtectorCreateClose(PDEVICE_OBJECT, PIRP);
 NTSTATUS DeleteProtectorDeviceControl(PDEVICE_OBJECT, PIRP);
+
 
 FilterState g_FilterState;
 
@@ -69,15 +72,15 @@ NTSTATUS DeleteProtectorDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
 	PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
 	NTSTATUS status = STATUS_SUCCESS;
 	switch (stack->Parameters.DeviceIoControl.IoControlCode) {
-	case IOCTL_DELETE_PROTECTOR_ADD_EXTENSION: {
+	case IOCTL_DELETE_PROTECTOR_SET_EXTENSIONS: {
 		if (stack->Parameters.DeviceIoControl.InputBufferLength < sizeof(UNICODE_STRING)) {
 			status = STATUS_BUFFER_TOO_SMALL;
 			break;
 		}
 		PUNICODE_STRING extension = (PUNICODE_STRING)Irp->AssociatedIrp.SystemBuffer;
 		if (extension && extension->Length > 0 && extension->Length <= MAX_PATH * sizeof(WCHAR)) {
-			KdPrint((DRIVER_PREFIX "Adding protected extension: %wZ\n", extension));
-			status = AddProtectedExtension(extension);
+			KdPrint((DRIVER_PREFIX "Setting protected extension: %wZ\n", extension));
+			status = SetProtectedExtensions(extension);
 		}
 		else {
 			status = STATUS_INVALID_PARAMETER;
