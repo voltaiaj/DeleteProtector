@@ -4,6 +4,7 @@
 #include "MiniFilter.h"
 
 NTSTATUS DeleteProtectorCreateClose(PDEVICE_OBJECT, PIRP);
+NTSTATUS DeleteProtectorDeviceControl(PDEVICE_OBJECT, PIRP);
 
 FilterState g_FilterState;
 
@@ -50,6 +51,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) 
 
 	DriverObject->MajorFunction[IRP_MJ_CREATE] = 
 		DriverObject->MajorFunction[IRP_MJ_CLOSE] =	DeleteProtectorCreateClose;
+	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DeleteProtectorDeviceControl;
 
     return STATUS_SUCCESS;
 }
@@ -60,4 +62,34 @@ NTSTATUS DeleteProtectorCreateClose(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
 	Irp->IoStatus.Information = 0;
 	IoCompleteRequest(Irp, IO_NO_INCREMENT);
 	return STATUS_SUCCESS;
+}
+
+NTSTATUS DeleteProtectorDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
+	UNREFERENCED_PARAMETER(DeviceObject);
+	PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+	NTSTATUS status = STATUS_SUCCESS;
+	switch (stack->Parameters.DeviceIoControl.IoControlCode) {
+	case IOCTL_DELETE_PROTECTOR_ADD_EXTENSION: {
+		if (stack->Parameters.DeviceIoControl.InputBufferLength < sizeof(UNICODE_STRING)) {
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		PUNICODE_STRING extension = (PUNICODE_STRING)Irp->AssociatedIrp.SystemBuffer;
+		if (extension && extension->Length > 0 && extension->Length <= MAX_PATH * sizeof(WCHAR)) {
+			KdPrint((DRIVER_PREFIX "Adding protected extension: %wZ\n", extension));
+			status = AddProtectedExtension(extension);
+		}
+		else {
+			status = STATUS_INVALID_PARAMETER;
+		}
+		break;
+	}
+	default:
+		status = STATUS_INVALID_DEVICE_REQUEST;
+		break;
+	}
+	Irp->IoStatus.Status = status;
+	Irp->IoStatus.Information = 0;
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+	return status;
 }
